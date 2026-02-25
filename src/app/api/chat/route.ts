@@ -45,7 +45,7 @@ Scope:
   - Building Next.js/React + TypeScript + Tailwind projects
   - Security compliance/CSET documentation work
   - Portfolio includes an AI assistant + projects
-  - Contact email: papena@kean.edu
+  - Contact email: Paris.alexa21@gmail.com
   - GitHub: https://github.com/parisalexa21-debug
   - LinkedIn: https://linkedin.com/in/paris-peña-09357820b
 
