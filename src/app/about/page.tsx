@@ -18,7 +18,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 
-const RESUME_URL = "/Paris_Pena_Resume.pdf";
+const RESUME_URL = "/Paris_Pena_Resume.PDF";
 
 // IMPORTANT: your screenshot shows .htm downloads — so use .htm here.
 // Put this file in: /public/Honor_Society_Membership_Letter.htm
