@@ -1,293 +1,181 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-type Role = "user" | "assistant";
-type ChatMsg = { id: string; role: Role; content: string; ts: number };
+type Msg = { role: "user" | "assistant"; content: string; ts: number };
 
-const chips = [
+function formatTime(ts: number) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+const starters = [
   "What are Paris’s strongest skills?",
   "What projects has Paris built?",
-  "What security compliance work has Paris done?",
+  "What is Paris studying?",
   "How can I contact Paris?",
 ];
 
-function uid() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
-function formatTime(ts: number) {
-  try {
-    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
-
-function TypingDots() {
-  return (
-    <span className="typing" aria-label="Assistant is typing">
-      <span className="bg-gray-500 dark:bg-white/70" />
-      <span className="bg-gray-500 dark:bg-white/70" />
-      <span className="bg-gray-500 dark:bg-white/70" />
-    </span>
-  );
-}
-
 export default function ChatWidget() {
-  const [messages, setMessages] = useState<ChatMsg[]>([
+  const [messages, setMessages] = useState<Msg[]>([
     {
-      id: uid(),
       role: "assistant",
       content:
-        "Hi — I’m Paris’s AI Resume Assistant. Ask about skills, projects, education, or security-focused experience.",
+        "Hi! I’m Paris’s AI Resume Assistant. Ask me anything about skills, projects, education, or interests.",
       ts: Date.now(),
     },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const endRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages, loading]);
 
-  const canSend = useMemo(() => input.trim().length > 0 && !loading, [input, loading]);
+  async function send(text?: string) {
+    const msg = (text ?? input).trim();
+    if (!msg || loading) return;
 
-  async function copyText(text: string, id: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 900);
-    } catch {
-      // ignore
-    }
-  }
-
-  function lastAssistantMessage(): ChatMsg | null {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "assistant" && messages[i].content.trim()) return messages[i];
-    }
-    return null;
-  }
-
-  async function sendMessage(text?: string) {
-    const value = (text ?? input).trim();
-    if (!value || loading) return;
-
-    const now = Date.now();
     setInput("");
+    setMessages((m) => [...m, { role: "user", content: msg, ts: Date.now() }]);
     setLoading(true);
 
-    const userMsg: ChatMsg = { id: uid(), role: "user", content: value, ts: now };
-    const assistantMsg: ChatMsg = { id: uid(), role: "assistant", content: "", ts: now };
-
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-
     try {
-      // send last ~12 msgs for context
-      const history = [...messages, userMsg]
-        .slice(-12)
-        .map((m) => ({ role: m.role, content: m.content }));
-
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({ message: msg }),
       });
 
-      if (!res.ok || !res.body) throw new Error("No stream");
+      const data = await res.json().catch(() => ({}));
+      const reply =
+        typeof data?.reply === "string" && data.reply.trim()
+          ? data.reply
+          : "AI assistant error. Please try again.";
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let full = "";
-
-      while (true) {
-        const { value: chunk, done } = await reader.read();
-        if (done) break;
-        full += decoder.decode(chunk, { stream: true });
-
-        setMessages((prev) => {
-          const copy = [...prev];
-          const last = copy[copy.length - 1];
-          if (last?.role === "assistant") {
-            copy[copy.length - 1] = { ...last, content: full };
-          }
-          return copy;
-        });
-      }
+      setMessages((m) => [...m, { role: "assistant", content: reply, ts: Date.now() }]);
     } catch {
-      setMessages((prev) => {
-        const copy = [...prev];
-        const last = copy[copy.length - 1];
-        if (last?.role === "assistant") {
-          copy[copy.length - 1] = {
-            ...last,
-            content: "AI assistant error. Please try again.",
-          };
-        }
-        return copy;
-      });
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: "AI assistant error. Please try again.", ts: Date.now() },
+      ]);
     } finally {
       setLoading(false);
-      inputRef.current?.focus();
     }
   }
 
-  async function summarizeLast() {
-    const last = lastAssistantMessage();
-    if (!last || loading) return;
-
-    const prompt = `Give a TL;DR summary of the following answer in 3 tight bullets. Keep a cybersecurity-professional tone.
-
-Answer:
-${last.content}`;
-
-    await sendMessage(prompt);
+  function clearChat() {
+    setMessages([
+      {
+        role: "assistant",
+        content:
+          "Hi! I’m Paris’s AI Resume Assistant. Ask me anything about skills, projects, education, or interests.",
+        ts: Date.now(),
+      },
+    ]);
   }
 
   return (
     <div
-      className="rounded-3xl border shadow-2xl overflow-hidden
-        border-black/10 bg-white/70 backdrop-blur
+      className="rounded-3xl border overflow-hidden shadow-sm
+        border-black/10 bg-white/70
         dark:border-white/10 dark:bg-white/5"
     >
-      {/* Top bar */}
-      <div
-        className="flex items-center justify-between gap-3 border-b px-5 py-4
-          border-black/10 bg-white/60
-          dark:border-white/10 dark:bg-white/5"
-      >
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-black/10 dark:border-white/10">
         <div>
-          <div className="text-sm font-semibold text-gray-900 dark:text-white">AI Chat</div>
-        
+          <div className="font-semibold text-black dark:text-white">AI Resume Assistant</div>
+          <div className="text-xs text-gray-600 dark:text-white/60">
+            Cybersecurity tone • concise answers
+          </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={summarizeLast}
-            disabled={loading}
-            className="rounded-xl border px-3 py-2 text-xs font-semibold transition
-              border-black/10 bg-black/5 text-gray-900 hover:bg-black/10
-              disabled:opacity-50
-              dark:border-white/10 dark:bg-white/10 dark:text-white dark:hover:bg-white/15"
-            title="Summarize the last assistant answer"
-          >
-            TL;DR
-          </button>
-
-          <span
-            className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium
-              border-black/10 bg-black/5 text-gray-700
-              dark:border-white/10 dark:bg-white/10 dark:text-white/80"
-          >
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            Online
-          </span>
-        </div>
+        <button
+          onClick={clearChat}
+          className="btn btn-ghost !px-4 !py-2"
+          type="button"
+        >
+          Clear
+        </button>
       </div>
 
       {/* Messages */}
-      <div className="min-h-[420px] lg:min-h-[520px]">
-        <div className="h-[420px] lg:h-[520px] overflow-y-auto px-4 py-5 space-y-3">
-          {messages.map((m) => {
-            const isUser = m.role === "user";
-            return (
-              <div key={m.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                <div className="max-w-[92%]">
-                  <div
-                    className={`rounded-2xl px-4 py-2 text-sm leading-relaxed shadow-sm ${
-                      isUser
-                        ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
-                        : "bg-black/5 text-gray-900 dark:bg-white/10 dark:text-white"
-                    }`}
-                  >
-                    {m.content || (!isUser && loading ? <TypingDots /> : "")}
-                  </div>
-
-                  <div
-                    className={`mt-1 flex items-center gap-2 text-[11px]
-                      ${isUser ? "justify-end" : "justify-start"}
-                      text-gray-500 dark:text-white/50`}
-                  >
-                    <span>{formatTime(m.ts)}</span>
-
-                    {!isUser && m.content.trim() ? (
-                      <>
-                        <span>•</span>
-                        <button
-                          type="button"
-                          onClick={() => copyText(m.content, m.id)}
-                          className="underline hover:opacity-80"
-                        >
-                          {copiedId === m.id ? "Copied" : "Copy"}
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
+      <div ref={listRef} className="h-[420px] sm:h-[520px] overflow-y-auto px-4 sm:px-5 py-4 space-y-3">
+        {messages.map((m, i) => {
+          const isUser = m.role === "user";
+          return (
+            <div key={i} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+              <div
+                className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed
+                  ${
+                    isUser
+                      ? "bg-gray-900 text-white dark:bg-white dark:text-black"
+                      : "bg-black/5 text-gray-900 dark:bg-white/10 dark:text-white"
+                  }`}
+              >
+                <div className="whitespace-pre-wrap">{m.content}</div>
+                <div className={`mt-1 text-[11px] opacity-70 ${isUser ? "text-white/70 dark:text-black/60" : ""}`}>
+                  {formatTime(m.ts)}
                 </div>
               </div>
-            );
-          })}
+            </div>
+          );
+        })}
 
-          <div ref={endRef} />
+        {loading ? (
+          <div className="flex justify-start">
+            <div className="rounded-2xl px-4 py-3 text-sm bg-black/5 dark:bg-white/10">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex gap-1">
+                  <span className="h-2 w-2 rounded-full bg-gray-500 animate-bounce [animation-delay:0ms]" />
+                  <span className="h-2 w-2 rounded-full bg-gray-500 animate-bounce [animation-delay:150ms]" />
+                  <span className="h-2 w-2 rounded-full bg-gray-500 animate-bounce [animation-delay:300ms]" />
+                </span>
+                <span className="text-xs opacity-70">Typing…</span>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Composer */}
+      <div className="border-t border-black/10 dark:border-white/10 px-4 sm:px-5 py-3">
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") send();
+            }}
+            placeholder="Ask a question…"
+            className="flex-1 rounded-xl border px-3 py-2 text-sm outline-none
+              border-black/10 bg-white
+              dark:border-white/10 dark:bg-[#0f1a2e] dark:text-white"
+          />
+          <button
+            onClick={() => send()}
+            disabled={!input.trim() || loading}
+            className="btn btn-primary !px-5 !py-2 disabled:opacity-50"
+            type="button"
+          >
+            Send
+          </button>
         </div>
 
-        {/* Input */}
-        <div className="border-t p-4 border-black/10 dark:border-white/10">
-          <div className="flex gap-2">
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") sendMessage();
-              }}
-              placeholder="Ask a question… (press Enter)"
-              className="flex-1 rounded-xl border px-4 py-3 text-sm outline-none transition
-                border-black/10 bg-white text-gray-900
-                focus:ring-2 focus:ring-blue-200
-                dark:border-white/10 dark:bg-white/5 dark:text-white dark:focus:ring-blue-500/30"
-            />
-
+        <div className="mt-3 flex flex-wrap gap-2">
+          {starters.map((q) => (
             <button
-              onClick={() => sendMessage()}
-              disabled={!canSend}
-              className="rounded-xl px-5 py-3 text-sm font-semibold transition
-                bg-blue-600 text-white hover:bg-blue-700
-                disabled:opacity-50 disabled:hover:bg-blue-600"
+              key={q}
+              onClick={() => send(q)}
+              className="rounded-full border px-3 py-1 text-[11px] font-semibold transition
+                border-black/10 bg-black/5 hover:bg-black/10
+                dark:border-white/10 dark:bg-white/10 dark:hover:bg-white/15"
+              type="button"
             >
-              Send
+              {q}
             </button>
-          </div>
-
-          {/* Chips */}
-          <div className="mt-3 flex flex-wrap gap-2">
-            {chips.map((q) => (
-              <button
-                key={q}
-                onClick={() => sendMessage(q)}
-                className="rounded-full border px-3 py-1 text-xs font-medium transition
-                  border-black/10 bg-black/5 text-gray-800 hover:bg-black/10
-                  dark:border-white/10 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-3 text-xs text-gray-500 dark:text-white/50">
-            Tip: visit{" "}
-            <Link href="/contact" className="underline hover:opacity-80">
-              Contact
-            </Link>{" "}
-            for email + LinkedIn.
-          </div>
+          ))}
         </div>
       </div>
     </div>
